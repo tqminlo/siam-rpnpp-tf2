@@ -190,11 +190,3 @@ if __name__ == "__main__":
     siamrpnpp.summary()
     siamrpnpp.save("saved_models/demo.h5")
 
-    # a = tf.constant([[1,2], [3,4]])
-    # print(a.numpy())
-    # b = tf.constant([[5,6], [1,1]])
-    # print(b.numpy())
-    # c = a * b
-    # print(c)
-
-
