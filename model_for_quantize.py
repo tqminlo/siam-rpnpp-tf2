@@ -1,7 +1,6 @@
 import time
-import keras.models
+import keras
 import numpy as np
-from keras.applications.resnet import ResNet50
 from keras.models import load_model, Model
 from keras.layers import *
 import tensorflow as tf
@@ -12,48 +11,35 @@ class ResNet50Modify:
         self.size = size
 
     def conv1_block(self, x):
-        x = Conv2D(filters=64, kernel_size=(7,7), strides=(2, 2), padding='valid', use_bias=False)(x)
-        x = BatchNormalization()(x)
-        x = ReLU()(x)
-        x = MaxPooling2D(pool_size=(3,3), strides=(2,2), padding='same')(x)
+        x = Conv2D(filters=64, kernel_size=(7, 7), strides=(2, 2), padding='valid', use_bias=False, activation='relu')(x)
+        x = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), padding='same')(x)
         return x
 
     def identity_block(self, mid_c, out_c, dilation, x):
-        fx = Conv2D(filters=mid_c, kernel_size=(1, 1), strides=(1, 1), use_bias=False)(x)
-        fx = BatchNormalization()(fx)
-        fx = ReLU()(fx)
+        fx = Conv2D(filters=mid_c, kernel_size=(1, 1), strides=(1, 1), use_bias=False, activation='relu')(x)
         fx = Conv2D(filters=mid_c, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation, padding='same',
-                    use_bias=False)(fx)
-        fx = BatchNormalization()(fx)
-        fx = ReLU()(fx)
+                    use_bias=False, activation='relu')(fx)
         fx = Conv2D(filters=out_c, kernel_size=(1, 1), strides=(1, 1), use_bias=False)(fx)
-        fx = BatchNormalization()(fx)
-        hx = fx + x
+        hx = Add()((fx, x))
         hx = ReLU()(hx)
         return hx
 
     def convolution_block(self, mid_c, out_c, stride, dilation, padding, x):
-        fx = Conv2D(filters=mid_c, kernel_size=(1, 1), strides=(1, 1), use_bias=False)(x)
-        fx = BatchNormalization()(fx)
-        fx = ReLU()(fx)
+        fx = Conv2D(filters=mid_c, kernel_size=(1, 1), strides=(1, 1), use_bias=False, activation='relu')(x)
         fx = Conv2D(filters=mid_c, kernel_size=(3, 3), strides=stride, dilation_rate=dilation, padding=padding,
-                    use_bias=False)(fx)
-        fx = BatchNormalization()(fx)
-        fx = ReLU()(fx)
+                    use_bias=False, activation='relu')(fx)
         fx = Conv2D(filters=out_c, kernel_size=(1, 1), strides=(1, 1), use_bias=False)(fx)
-        fx = BatchNormalization()(fx)
-        if mid_c == 64:   # specially for conv2 (stage1)
+        if mid_c == 64:  # specially for conv2 (stage1)
             cx = Conv2D(filters=out_c, kernel_size=(1, 1), strides=(1, 1), use_bias=False)(x)
         else:
             cx = Conv2D(filters=out_c, kernel_size=(3, 3), strides=stride, dilation_rate=dilation, padding=padding,
                         use_bias=False)(x)
-        cx = BatchNormalization()(cx)
-        hx = fx + cx
+        hx = Add()((fx, cx))
         hx = ReLU()(hx)
         return hx
 
     def conv2_block(self, x):
-        x = self.convolution_block(64, 256, stride=(1,1), dilation=1, padding='same', x=x)
+        x = self.convolution_block(64, 256, stride=(1, 1), dilation=1, padding='same', x=x)
         x = self.identity_block(64, 256, dilation=1, x=x)
         x = self.identity_block(64, 256, dilation=1, x=x)
         return x
@@ -82,7 +68,6 @@ class ResNet50Modify:
 
     def neck(self, x):
         x = Conv2D(filters=256, kernel_size=(1, 1), strides=(1, 1), use_bias=False)(x)
-        x = BatchNormalization()(x)
         return x
 
     def __call__(self):
@@ -109,22 +94,12 @@ class DepthwiseCorr(Layer):
         for i in range(batch_size):
             templatei = tf.reshape(template[i], shape=(k_size, k_size, 256, 1))
             searchi = tf.reshape(search[i], shape=(1, x_size, x_size, 256))
-            correlationi = tf.nn.depthwise_conv2d(searchi, templatei, strides=[1,1,1,1], padding='VALID')
-            correlationi = tf.reshape(correlationi, (x_size-k_size+1, x_size-k_size+1, 256))
+            correlationi = tf.nn.depthwise_conv2d(searchi, templatei, strides=[1, 1, 1, 1], padding='VALID')
+            correlationi = tf.reshape(correlationi, (x_size - k_size + 1, x_size - k_size + 1, 256))
             # print(correlationi.shape)
             correlation.append(correlationi)
         correlation = tf.convert_to_tensor(correlation)
         self.model = Model([search, template], correlation)
-
-        # for h in range(x_size-k_size+1):
-        #         #     for w in range(x_size-k_size+1):
-        #         #         a = search[:, h:h+k_size, w:w+k_size, :] * template[:, :, :, :]
-        #         #         a = tf.reduce_sum(a, axis=1)
-        #         #         a = tf.reduce_sum(a, axis=1)
-        #         #         correlation.append(a)
-        #         # correlation = tf.convert_to_tensor(correlation)
-        #         # correlation = tf.transpose(correlation, (1, 0, 2))
-        #         # correlation = Reshape(target_shape=(x_size-k_size+1, x_size-k_size+1, correlation.shape[2]))(correlation)
 
     def __call__(self, inputs):
         return self.model(inputs)
@@ -140,25 +115,20 @@ class SiamRPNpp:
 
     def rpn(self, template, search, category='cls'):
         template = CenterCrop(self.temp_crop_size, self.temp_crop_size)(template)
-        template = Conv2D(filters=256, kernel_size=(3, 3), strides=(1, 1), use_bias=False)(template)
-        template = BatchNormalization()(template)
-        template = ReLU()(template)
+        template = Conv2D(filters=256, kernel_size=(3, 3), strides=(1, 1), use_bias=False, activation='relu')(template)
 
-        search = Conv2D(filters=256, kernel_size=(3, 3), strides=(1, 1), use_bias=False)(search)
-        search = BatchNormalization()(search)
-        search = ReLU()(search)
+        search = Conv2D(filters=256, kernel_size=(3, 3), strides=(1, 1), use_bias=False, activation='relu')(search)
 
         k_size, x_size = template.shape[1], search.shape[1]
         correlation = DepthwiseCorr(k_size, x_size, batch_size=self.batch_size)([search, template])
-        correlation = Conv2D(filters=256, kernel_size=(1, 1), strides=(1, 1), use_bias=False)(correlation)
-        correlation = BatchNormalization()(correlation)
-        correlation = ReLU()(correlation)
+        correlation = Conv2D(filters=256, kernel_size=(1, 1), strides=(1, 1), use_bias=False,
+                             activation='relu')(correlation)
         if category == 'cls':
-            correlation = Conv2D(filters=2*self.num_anchors, kernel_size=(1, 1), strides=(1, 1),
+            correlation = Conv2D(filters=2 * self.num_anchors, kernel_size=(1, 1), strides=(1, 1),
                                  use_bias=False)(correlation)
         else:
             assert category == 'loc', "False at anything"
-            correlation = Conv2D(filters=4*self.num_anchors, kernel_size=(1, 1), strides=(1, 1),
+            correlation = Conv2D(filters=4 * self.num_anchors, kernel_size=(1, 1), strides=(1, 1),
                                  use_bias=False)(correlation)
         return correlation
 
@@ -184,15 +154,15 @@ class SiamRPNpp:
 
 
 if __name__ == "__main__":
-    siamrpnpp = SiamRPNpp(127, 255, 7, 5, 8)()
+    siamrpnpp = SiamRPNpp(127, 255, 7, 5, 1)()
     siamrpnpp.summary()
 
     print(siamrpnpp.layers)
     print(len(siamrpnpp.layers))
     # siamrpnpp.save("saved_models/demo.h5")
 
-    template = np.zeros(shape=(8,127,127,3))
-    search = np.zeros(shape=(8,255,255,3))
+    template = np.zeros(shape=(1, 127, 127, 3))
+    search = np.zeros(shape=(1, 255, 255, 3))
     for i in range(20):
         start = time.time()
         out = siamrpnpp([template, search])
